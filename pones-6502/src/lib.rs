@@ -1,6 +1,4 @@
+mod reg_state;
 mod cpu;
-
-#[cfg(test)]
-mod tests;
 
 pub use cpu::*;

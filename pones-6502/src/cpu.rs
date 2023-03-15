@@ -1,3 +1,5 @@
+use crate::reg_state::RegisterState;
+
 const STACK_START: u16 = 0x0100;
 const IRQ_BRK_VECTOR: u16 = 0xFFFE;
 const RESET_VECTOR: u16 = 0xFFFC;
@@ -22,10 +24,7 @@ pub enum CpuFlag {
 
 pub struct Cpu6502<B> {
     pub bus: B,
-    pub a: u8,
-    pub x: u8,
-    pub y: u8,
-    pub status: u8,
+    pub reg: RegisterState,
     pub sp: u8,
     pub pc: u16,
 }
@@ -34,79 +33,33 @@ impl<B: Bus> Cpu6502<B> {
     pub fn new(bus: B) -> Self {
         Self {
             bus,
-            a: 0,
-            x: 0,
-            y: 0,
-            status: (1 << CpuFlag::Reserved as u8) | (1 << CpuFlag::InterruptDisable as u8),
+            reg: RegisterState::default(),
             sp: 255,
             pc: 0,
         }
     }
 
     pub fn reset(&mut self) {
-        self.set_flag(CpuFlag::InterruptDisable, true);
+        self.reg.interrupt_disable = true;
         self.pc = self.read_absolute(RESET_VECTOR);
     }
 
-    pub fn get_flag(&mut self, flag: CpuFlag) -> bool {
-        self.status & (1 << flag as u8) != 0
-    }
-
-    fn set_flag(&mut self, flag: CpuFlag, value: bool) {
-        self.status &= !(1 << flag as u8);
-        self.status |= (value as u8) << flag as u8;
-    }
-
-    fn set_status(&mut self, value: u8) {
-        let b = 1 << CpuFlag::Break as u8;
-        let r = 1 << CpuFlag::Reserved as u8;
-        self.status = (value & !b) | r;
-    }
-
-    fn update_nz_flags(&mut self, value: u8) {
-        self.set_flag(CpuFlag::Negative, (value as i8).is_negative());
-        self.set_flag(CpuFlag::Zero, value == 0);
-    }
-
-    fn set_a(&mut self, value: u8) {
-        self.a = value;
-        self.update_nz_flags(self.a);
-    }
-
-    fn set_x(&mut self, value: u8) {
-        self.x = value;
-        self.update_nz_flags(self.x);
-    }
-
-    fn set_y(&mut self, value: u8) {
-        self.y = value;
-        self.update_nz_flags(self.y);
-    }
-
-    fn read_byte(&mut self, addr: u16) -> u8 {
-        self.bus.read(addr)
-    }
-
     fn read_absolute(&mut self, addr: u16) -> u16 {
-        u16::from_le_bytes([self.read_byte(addr), self.read_byte(addr.wrapping_add(1))])
-    }
-
-    fn write_byte(&mut self, addr: u16, value: u8) {
-        self.bus.write(addr, value)
+        u16::from_le_bytes([self.bus.read(addr), self.bus.read(addr.wrapping_add(1))])
     }
 
     fn stack_push(&mut self, value: u8) {
-        self.write_byte(STACK_START + self.sp as u16, value);
+        self.bus.write(STACK_START + self.sp as u16, value);
         self.sp = self.sp.wrapping_sub(1);
     }
 
-    pub fn stack_pop(&mut self) -> u8 {
+    fn stack_pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read_byte(STACK_START + self.sp as u16)
+        self.bus.read(STACK_START + self.sp as u16)
     }
 
     fn take_byte_at_pc(&mut self) -> u8 {
-        let byte = self.read_byte(self.pc);
+        let byte = self.bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         byte
     }
@@ -142,22 +95,22 @@ impl<B: Bus> Cpu6502<B> {
 
     /// a,x
     fn take_absolute_indexed_x(&mut self) -> u16 {
-        self.take_absolute().wrapping_add(self.x as u16)
+        self.take_absolute().wrapping_add(self.reg.x as u16)
     }
 
     /// a,y
     fn take_absolute_indexed_y(&mut self) -> u16 {
-        self.take_absolute().wrapping_add(self.y as u16)
+        self.take_absolute().wrapping_add(self.reg.y as u16)
     }
 
     /// d,x
     fn take_zero_page_indexed_x(&mut self) -> u8 {
-        self.take_zero_page().wrapping_add(self.x)
+        self.take_zero_page().wrapping_add(self.reg.x)
     }
 
     /// d,y
     fn take_zero_page_indexed_y(&mut self) -> u8 {
-        self.take_zero_page().wrapping_add(self.y)
+        self.take_zero_page().wrapping_add(self.reg.y)
     }
 
     /// (d,x)
@@ -169,7 +122,7 @@ impl<B: Bus> Cpu6502<B> {
     /// (d),y
     fn take_indirect_indexed(&mut self) -> u16 {
         let addr = self.take_zero_page() as u16;
-        self.read_absolute(addr).wrapping_add(self.y as u16)
+        self.read_absolute(addr).wrapping_add(self.reg.y as u16)
     }
 
     pub fn step(&mut self) {
@@ -200,14 +153,14 @@ impl<B: Bus> Cpu6502<B> {
             (op @ 0..=7, 4, 0) => {
                 let addr = self.take_relative();
                 let branch = match op {
-                    0 => !self.get_flag(CpuFlag::Negative), // BPL *+d
-                    1 => self.get_flag(CpuFlag::Negative), // BMI *+d
-                    2 => !self.get_flag(CpuFlag::Overflow), // BVC *+d
-                    3 => self.get_flag(CpuFlag::Overflow), // BVS *+d
-                    4 => !self.get_flag(CpuFlag::Carry), // BCC *+d
-                    5 => self.get_flag(CpuFlag::Carry), // BCS *+d
-                    6 => !self.get_flag(CpuFlag::Zero), // BNE *+d
-                    7 => self.get_flag(CpuFlag::Zero), // BEQ *+d
+                    0 => !self.reg.negative, // BPL *+d
+                    1 => self.reg.negative, // BMI *+d
+                    2 => !self.reg.overflow, // BVC *+d
+                    3 => self.reg.overflow, // BVS *+d
+                    4 => !self.reg.carry, // BCC *+d
+                    5 => self.reg.carry, // BCS *+d
+                    6 => !self.reg.zero, // BNE *+d
+                    7 => self.reg.zero, // BEQ *+d
                     8.. => unreachable!()
                 };
                 if branch {
@@ -216,13 +169,13 @@ impl<B: Bus> Cpu6502<B> {
             }
 
             // Flag ops
-            (0, 6, 0) => self.set_flag(CpuFlag::Carry, false), // CLC
-            (1, 6, 0) => self.set_flag(CpuFlag::Carry, true), // SEC
-            (2, 6, 0) => self.set_flag(CpuFlag::InterruptDisable, false), // CLI
-            (3, 6, 0) => self.set_flag(CpuFlag::InterruptDisable, true), // SEI
-            (5, 6, 0) => self.set_flag(CpuFlag::Overflow, false), // CLV
-            (6, 6, 0) => self.set_flag(CpuFlag::Decimal, false), // CLD
-            (7, 6, 0) => self.set_flag(CpuFlag::Decimal, true), // SED
+            (0, 6, 0) => self.reg.carry = false, // CLC
+            (1, 6, 0) => self.reg.carry = true, // SEC
+            (2, 6, 0) => self.reg.interrupt_disable = false, // CLI
+            (3, 6, 0) => self.reg.interrupt_disable = true, // SEI
+            (5, 6, 0) => self.reg.overflow = false, // CLV
+            (6, 6, 0) => self.reg.decimal = false, // CLD
+            (7, 6, 0) => self.reg.decimal = true, // SED
 
             // Jumps and subroutine ops
             (2, 3, 0) => self.pc = self.take_absolute(), // JMP a
@@ -248,13 +201,13 @@ impl<B: Bus> Cpu6502<B> {
                 let [pc_low, pc_high] = self.pc.to_le_bytes();
                 self.stack_push(pc_high);
                 self.stack_push(pc_low);
-                self.stack_push(self.status | (1 << CpuFlag::Break as u8));
-                self.set_flag(CpuFlag::InterruptDisable, true);
+                self.stack_push(self.reg.get_status(true));
+                self.reg.interrupt_disable = true;
                 self.pc = self.read_absolute(IRQ_BRK_VECTOR);
             }
             (2, 0, 0) => { // RTI
                 let status = self.stack_pop();
-                self.set_status(status);
+                self.reg.set_status(status);
                 let ret_low = self.stack_pop();
                 let ret_high = self.stack_pop();
                 self.pc = u16::from_le_bytes([ret_low, ret_high]);
@@ -263,29 +216,29 @@ impl<B: Bus> Cpu6502<B> {
             // Bit test ops
             (1, 1, 0) => { // BIT d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
-                self.set_flag(CpuFlag::Zero, self.a & n == 0);
-                self.set_flag(CpuFlag::Negative, n & 0b1000_0000 != 0);
-                self.set_flag(CpuFlag::Overflow, n & 0b0100_0000 != 0);
+                let n = self.bus.read(addr);
+                self.reg.zero = self.reg.a & n == 0;
+                self.reg.negative = n & 0b1000_0000 != 0;
+                self.reg.overflow = n & 0b0100_0000 != 0;
             }
             (1, 3, 0) => { // BIT a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
-                self.set_flag(CpuFlag::Zero, self.a & n == 0);
-                self.set_flag(CpuFlag::Negative, n & 0b1000_0000 != 0);
-                self.set_flag(CpuFlag::Overflow, n & 0b0100_0000 != 0);
+                let n = self.bus.read(addr);
+                self.reg.zero = self.reg.a & n == 0;
+                self.reg.negative = n & 0b1000_0000 != 0;
+                self.reg.overflow = n & 0b0100_0000 != 0;
             }
 
             // Stack ops
-            (0, 2, 0) => self.stack_push(self.status | (1 << CpuFlag::Break as u8)), // PHP
+            (0, 2, 0) => self.stack_push(self.reg.get_status(true)), // PHP
             (1, 2, 0) => { // PLP
                 let status = self.stack_pop();
-                self.set_status(status);
+                self.reg.set_status(status);
             }
-            (2, 2, 0) => self.stack_push(self.a), // PHA
+            (2, 2, 0) => self.stack_push(self.reg.a), // PHA
             (3, 2, 0) => { // PLA
                 let n = self.stack_pop();
-                self.set_a(n)
+                self.reg.update_a(n)
             }
 
             (0, 1, 0) => {} // NOP d [!]
@@ -301,91 +254,91 @@ impl<B: Bus> Cpu6502<B> {
             (3, 5, 0) => {} // NOP d,x [!]
             (3, 7, 0) => {} // NOP a,x [!]
 
-            (4, 6, 0) => self.set_a(self.y), // TYA
-            (5, 2, 0) => self.set_y(self.a), // TAY
-            (6, 2, 0) => self.set_y(self.y.wrapping_add(1)), // INY
-            (7, 2, 0) => self.set_x(self.x.wrapping_add(1)), // INX
-            (4, 2, 0) => self.set_y(self.y.wrapping_sub(1)), // DEY
+            (4, 6, 0) => self.reg.update_a(self.reg.y), // TYA
+            (5, 2, 0) => self.reg.update_y(self.reg.a), // TAY
+            (6, 2, 0) => self.reg.update_y(self.reg.y.wrapping_add(1)), // INY
+            (7, 2, 0) => self.reg.update_x(self.reg.x.wrapping_add(1)), // INX
+            (4, 2, 0) => self.reg.update_y(self.reg.y.wrapping_sub(1)), // DEY
 
             (4, 0, 0) => {} // NOP #i [!]
             (4, 1, 0) => { // STY d
                 let addr = self.take_zero_page() as u16;
-                self.write_byte(addr, self.y);
+                self.bus.write(addr, self.reg.y);
             }
             (4, 3, 0) => { // STY a
                 let addr = self.take_absolute();
-                self.write_byte(addr, self.y);
+                self.bus.write(addr, self.reg.y);
             }
             (4, 5, 0) => { // STY d,x
                 let addr = self.take_zero_page_indexed_x() as u16;
-                self.write_byte(addr, self.y);
+                self.bus.write(addr, self.reg.y);
             }
             (4, 7, 0) => {} // SHY a,x [!]
 
             (5, 0, 0) => { // LDY #i
                 let addr = self.take_immediate();
-                let n = self.read_byte(addr);
-                self.set_y(n);
+                let n = self.bus.read(addr);
+                self.reg.update_y(n);
             }
             (5, 1, 0) => { // LDY d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
-                self.set_y(n);
+                let n = self.bus.read(addr);
+                self.reg.update_y(n);
             }
             (5, 3, 0) => { // LDY a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
-                self.set_y(n);
+                let n = self.bus.read(addr);
+                self.reg.update_y(n);
             }
             (5, 5, 0) => { // LDY d,x
                 let addr = self.take_zero_page_indexed_x() as u16;
-                let n = self.read_byte(addr);
-                self.set_y(n);
+                let n = self.bus.read(addr);
+                self.reg.update_y(n);
             }
             (5, 7, 0) => { // LDY a,x
                 let addr = self.take_absolute_indexed_x();
-                let n = self.read_byte(addr);
-                self.set_y(n);
+                let n = self.bus.read(addr);
+                self.reg.update_y(n);
             }
 
             (6, 0, 0) => { // CPY #i
                 let addr = self.take_immediate();
-                let n = self.read_byte(addr);
-                self.update_nz_flags(self.y.wrapping_sub(n));
-                self.set_flag(CpuFlag::Carry, self.y >= n);
+                let n = self.bus.read(addr);
+                self.reg.update_nz_flags(self.reg.y.wrapping_sub(n));
+                self.reg.carry = self.reg.y >= n;
             }
             (6, 1, 0) => { // CPY d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
-                self.update_nz_flags(self.y.wrapping_sub(n));
-                self.set_flag(CpuFlag::Carry, self.y >= n);
+                let n = self.bus.read(addr);
+                self.reg.update_nz_flags(self.reg.y.wrapping_sub(n));
+                self.reg.carry = self.reg.y >= n;
             }
             (6, 3, 0) => { // CPY a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
-                self.update_nz_flags(self.y.wrapping_sub(n));
-                self.set_flag(CpuFlag::Carry, self.y >= n);
+                let n = self.bus.read(addr);
+                self.reg.update_nz_flags(self.reg.y.wrapping_sub(n));
+                self.reg.carry = self.reg.y >= n;
             }
             (6, 5, 0) => {} // NOP d,x [!]
             (6, 7, 0) => {} // NOP a,x [!]
 
             (7, 0, 0) => { // CPX #i
                 let addr = self.take_immediate();
-                let n = self.read_byte(addr);
-                self.update_nz_flags(self.x.wrapping_sub(n));
-                self.set_flag(CpuFlag::Carry, self.x >= n);
+                let n = self.bus.read(addr);
+                self.reg.update_nz_flags(self.reg.x.wrapping_sub(n));
+                self.reg.carry = self.reg.x >= n;
             }
             (7, 1, 0) => { // CPX d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
-                self.update_nz_flags(self.x.wrapping_sub(n));
-                self.set_flag(CpuFlag::Carry, self.x >= n);
+                let n = self.bus.read(addr);
+                self.reg.update_nz_flags(self.reg.x.wrapping_sub(n));
+                self.reg.carry = self.reg.x >= n;
             }
             (7, 3, 0) => { // CPX a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
-                self.update_nz_flags(self.x.wrapping_sub(n));
-                self.set_flag(CpuFlag::Carry, self.x >= n);
+                let n = self.bus.read(addr);
+                self.reg.update_nz_flags(self.reg.x.wrapping_sub(n));
+                self.reg.carry = self.reg.x >= n;
             }
             (7, 5, 0) => {} // NOP d,x [!]
             (7, 7, 0) => {} // NOP a,x [!]
@@ -407,80 +360,77 @@ impl<B: Bus> Cpu6502<B> {
         
                 match op {
                     0 => { // ORA
-                        let n = self.read_byte(addr);
-                        self.set_a(self.a | n);
+                        let n = self.bus.read(addr);
+                        self.reg.update_a(self.reg.a | n);
                     }
                     1 => { // AND
-                        let n = self.read_byte(addr);
-                        self.set_a(self.a & n);
+                        let n = self.bus.read(addr);
+                        self.reg.update_a(self.reg.a & n);
                     }
                     2 => { // EOR
-                        let n = self.read_byte(addr);
-                        self.set_a(self.a ^ n);
+                        let n = self.bus.read(addr);
+                        self.reg.update_a(self.reg.a ^ n);
                     }
                     3 => { // ADC
                         // this is weird as hell will explain later maybe
-                        let operand = self.read_byte(addr) as u16;
-                        let carry = self.get_flag(CpuFlag::Carry) as u16;
-                        let result = self.a as u16 + operand + carry;
-                        let sevenbit_result = (self.a as u16 & 0x7F) + (operand & 0x7F) + carry;
+                        let operand = self.bus.read(addr) as u16;
+                        let carry = self.reg.carry as u16;
+                        let result = self.reg.a as u16 + operand + carry;
+                        let sevenbit_result = (self.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
                         let carryout = result > 0xFF;
-                        self.set_flag(CpuFlag::Carry, carryout);
-                        self.set_flag(CpuFlag::Overflow, carryout != (sevenbit_result > 0x7F));
-                        self.update_nz_flags(result as u8);
-                        // self.a is directly set here because decimal mode is weird
-                        if self.get_flag(CpuFlag::Decimal) {
-                            self.set_flag(CpuFlag::Carry, false);
-                            let mut lower = (self.a as u16 & 0xF) + (operand & 0xF) + carry;
-                            let mut upper = (self.a as u16 >> 4) + (operand >> 4);
+                        self.reg.carry = carryout;
+                        self.reg.overflow = carryout != (sevenbit_result > 0x7F);
+                        self.reg.update_nz_flags(result as u8);
+                        // self.reg.a is directly set here because decimal mode is weird
+                        if self.reg.decimal {
+                            self.reg.carry = false;
+                            let mut lower = (self.reg.a as u16 & 0xF) + (operand & 0xF) + carry;
+                            let mut upper = (self.reg.a as u16 >> 4) + (operand >> 4);
                             if lower >= 10 {
                                 lower = (lower - 10) & 0xF;
                                 upper += 1;
                             }
                             if upper >= 10 {
                                 upper = (upper - 10) & 0xF;
-                                self.set_flag(CpuFlag::Carry, true);
+                                self.reg.carry = true;
                             }
-                            self.a = ((upper << 4) | lower) as u8;
+                            self.reg.a = ((upper << 4) | lower) as u8;
                         } else {
-                            self.a = result as u8;
+                            self.reg.a = result as u8;
                         }
                     }
                     4 => { // STA
                         if addr_writable {
-                            self.write_byte(addr, self.a);
+                            self.bus.write(addr, self.reg.a);
                         }
                         // !addr_writable case is NOP #i [!]
                     }
                     5 => { // LDA
-                        let n = self.read_byte(addr);
-                        self.set_a(n);
+                        let n = self.bus.read(addr);
+                        self.reg.update_a(n);
                     }
                     6 => { // CMP
-                        let n = self.read_byte(addr);
-                        // if self.pc == 0x3489 {
-                        //     eprintln!("expected: {}, got: {}", n, self.a);
-                        // }
-                        self.update_nz_flags(self.a.wrapping_sub(n));
-                        self.set_flag(CpuFlag::Carry, self.a >= n);
+                        let n = self.bus.read(addr);
+                        self.reg.update_nz_flags(self.reg.a.wrapping_sub(n));
+                        self.reg.carry = self.reg.a >= n;
                     }
                     7 => { // SBC
-                        let operand = (!self.read_byte(addr)) as u16;
-                        let carry = self.get_flag(CpuFlag::Carry) as u16;
-                        let result = self.a as u16 + operand + carry;
-                        let sevenbit_result = (self.a as u16 & 0x7F) + (operand & 0x7F) + carry;
+                        let operand = (!self.bus.read(addr)) as u16;
+                        let carry = self.reg.carry as u16;
+                        let result = self.reg.a as u16 + operand + carry;
+                        let sevenbit_result = (self.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
                         let carryout = result > 0xFF;
-                        self.set_flag(CpuFlag::Carry, carryout);
-                        self.set_flag(CpuFlag::Overflow, carryout != (sevenbit_result > 0x7F));
-                        self.update_nz_flags(result as u8);
-                        // self.a is directly set here because decimal mode is weird
-                        if self.get_flag(CpuFlag::Decimal) {
+                        self.reg.carry = carryout;
+                        self.reg.overflow = carryout != (sevenbit_result > 0x7F);
+                        self.reg.update_nz_flags(result as u8);
+                        // self.reg.a is directly set here because decimal mode is weird
+                        if self.reg.decimal {
                             let operand = (!(operand as u8)) as u16;
-                            self.set_flag(CpuFlag::Carry, true);
-                            let mut lower = (self.a as u16 & 0xF)
+                            self.reg.carry = true;
+                            let mut lower = (self.reg.a as u16 & 0xF)
                                 .wrapping_sub(operand & 0xF)
                                 .wrapping_sub(1 - carry);
-                            let mut upper = (self.a as u16 >> 4)
+                            let mut upper = (self.reg.a as u16 >> 4)
                                 .wrapping_sub(operand >> 4);
                             if lower >= 10 {
                                 lower = (lower.wrapping_add(10)) & 0xF;
@@ -488,11 +438,11 @@ impl<B: Bus> Cpu6502<B> {
                             }
                             if upper >= 10 {
                                 upper = (upper.wrapping_add(10)) & 0xF;
-                                self.set_flag(CpuFlag::Carry, false);
+                                self.reg.carry = false;
                             }
-                            self.a = ((upper << 4) | lower) as u8;
+                            self.reg.a = ((upper << 4) | lower) as u8;
                         } else {
-                            self.a = result as u8;
+                            self.reg.a = result as u8;
                         }
                     }
                     8.. => unreachable!()
@@ -505,29 +455,29 @@ impl<B: Bus> Cpu6502<B> {
             (0..=3, 4, 2) => {} // STP [!]
             (0..=3, 6, 2) => {} // NOP [!]
             (op @ 0..=3, 2, 2) => { // accumulator case
-                let n = self.a;
+                let n = self.reg.a;
                 let result = match op {
                     0 => { // ASL
-                        self.set_flag(CpuFlag::Carry, n & 0b1000_0000 != 0);
+                        self.reg.carry = n & 0b1000_0000 != 0;
                         n << 1
                     }
                     1 => { // ROL
-                        let carry = self.get_flag(CpuFlag::Carry);
-                        self.set_flag(CpuFlag::Carry, n & 0b1000_0000 != 0);
+                        let carry = self.reg.carry;
+                        self.reg.carry = n & 0b1000_0000 != 0;
                         (n << 1) | carry as u8
                     }
                     2 => { // LSR
-                        self.set_flag(CpuFlag::Carry, n & 0b0000_0001 != 0);
+                        self.reg.carry = n & 0b0000_0001 != 0;
                         n >> 1
                     }
                     3 => { // ROR
-                        let carry = self.get_flag(CpuFlag::Carry);
-                        self.set_flag(CpuFlag::Carry, n & 0b0000_0001 != 0);
+                        let carry = self.reg.carry;
+                        self.reg.carry = n & 0b0000_0001 != 0;
                         (n >> 1) | ((carry as u8) << 7)
                     }
                     4.. => unreachable!()
                 };
-                self.set_a(result);
+                self.reg.update_a(result);
             }
             (op @ 0..=3, addr_mode @ (1 | 3 | 5 | 7), 2) => { // non-accumulator case
                 let addr = match addr_mode {
@@ -537,147 +487,147 @@ impl<B: Bus> Cpu6502<B> {
                     7 => self.take_absolute_indexed_x(), // a,x
                     _ => unreachable!()
                 };
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = match op {
                     0 => { // ASL
-                        self.set_flag(CpuFlag::Carry, n & 0b1000_0000 != 0);
+                        self.reg.carry = n & 0b1000_0000 != 0;
                         n << 1
                     }
                     1 => { // ROL
-                        let carry = self.get_flag(CpuFlag::Carry);
-                        self.set_flag(CpuFlag::Carry, n & 0b1000_0000 != 0);
+                        let carry = self.reg.carry;
+                        self.reg.carry = n & 0b1000_0000 != 0;
                         (n << 1) | carry as u8
                     }
                     2 => { // LSR
-                        self.set_flag(CpuFlag::Carry, n & 0b0000_0001 != 0);
+                        self.reg.carry = n & 0b0000_0001 != 0;
                         n >> 1
                     }
                     3 => { // ROR
-                        let carry = self.get_flag(CpuFlag::Carry);
-                        self.set_flag(CpuFlag::Carry, n & 0b0000_0001 != 0);
+                        let carry = self.reg.carry;
+                        self.reg.carry = n & 0b0000_0001 != 0;
                         (n >> 1) | ((carry as u8) << 7)
                     }
                     4.. => unreachable!()
                 };
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
         
             // Store ops
             (4, 0, 2) => {} // NOP #i [!]
             (4, 1, 2) => { // STX d
                 let addr = self.take_zero_page() as u16;
-                self.write_byte(addr, self.x);
+                self.bus.write(addr, self.reg.x);
             }
-            (4, 2, 2) => self.set_a(self.x), // TXA
+            (4, 2, 2) => self.reg.update_a(self.reg.x), // TXA
             (4, 3, 2) => { // STX a
                 let addr = self.take_absolute();
-                self.write_byte(addr, self.x);
+                self.bus.write(addr, self.reg.x);
             }
             (4, 4, 2) => {} // STP [!]
             (4, 5, 2) => { // STX d,y
                 let addr = self.take_zero_page_indexed_y() as u16;
-                self.write_byte(addr, self.x);
+                self.bus.write(addr, self.reg.x);
             }
-            (4, 6, 2) => self.sp = self.x, // TXS
+            (4, 6, 2) => self.sp = self.reg.x, // TXS
             (4, 7, 2) => {} // SHX a,y [!]
 
             // Load ops
             (5, 0, 2) => { // LDX #i
                 let addr = self.take_immediate();
-                let n = self.read_byte(addr);
-                self.set_x(n);
+                let n = self.bus.read(addr);
+                self.reg.update_x(n);
             }
             (5, 1, 2) => { // LDX d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
-                self.set_x(n);
+                let n = self.bus.read(addr);
+                self.reg.update_x(n);
             }
-            (5, 2, 2) => self.set_x(self.a), // TAX
+            (5, 2, 2) => self.reg.update_x(self.reg.a), // TAX
             (5, 3, 2) => { // LDX a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
-                self.set_x(n);
+                let n = self.bus.read(addr);
+                self.reg.update_x(n);
             }
             (5, 4, 2) => {} // STP [!]
             (5, 5, 2) => { // LDX d,y
                 let addr = self.take_zero_page_indexed_y() as u16;
-                let n = self.read_byte(addr);
-                self.set_x(n);
+                let n = self.bus.read(addr);
+                self.reg.update_x(n);
             }
-            (5, 6, 2) => self.set_x(self.sp), // TSX
+            (5, 6, 2) => self.reg.update_x(self.sp), // TSX
             (5, 7, 2) => { // LDX a,y
                 let addr = self.take_absolute_indexed_y();
-                let n = self.read_byte(addr);
-                self.set_x(n);
+                let n = self.bus.read(addr);
+                self.reg.update_x(n);
             }
 
             // Decrement ops
             (6, 0, 2) => {} // NOP #i [!]
             (6, 1, 2) => { // DEC d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_sub(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
-            (6, 2, 2) => self.set_x(self.x.wrapping_sub(1)), // DEX
+            (6, 2, 2) => self.reg.update_x(self.reg.x.wrapping_sub(1)), // DEX
             (6, 3, 2) => { // DEC a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_sub(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
             (6, 4, 2) => {} // STP [!]
             (6, 5, 2) => { // DEC d,x
                 let addr = self.take_zero_page_indexed_x() as u16;
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_sub(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
             (6, 6, 2) => {} // NOP [!]
             (6, 7, 2) => { // DEC a,x
                 let addr = self.take_absolute_indexed_x();
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_sub(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
 
             // Increment ops
             (7, 0, 2) => {} // NOP #i [!]
             (7, 1, 2) => { // INC d
                 let addr = self.take_zero_page() as u16;
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_add(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
             (7, 2, 2) => {} // NOP
             (7, 3, 2) => { // INC a
                 let addr = self.take_absolute();
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_add(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
             (7, 4, 2) => {} // STP [!]
             (7, 5, 2) => { // INC d,x
                 let addr = self.take_zero_page_indexed_x() as u16;
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_add(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
             (7, 6, 2) => {} // NOP [!]
             (7, 7, 2) => { // INC a,x
                 let addr = self.take_absolute_indexed_x();
-                let n = self.read_byte(addr);
+                let n = self.bus.read(addr);
                 let result = n.wrapping_add(1);
-                self.write_byte(addr, result);
-                self.update_nz_flags(result);
+                self.bus.write(addr, result);
+                self.reg.update_nz_flags(result);
             }
         
             // Group 3 (weird unofficial ops)
