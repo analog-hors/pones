@@ -34,14 +34,37 @@ impl<B: Bus> Cpu6502<B> {
         Self {
             bus,
             reg: RegisterState::default(),
-            sp: 255,
+            sp: 0,
             pc: 0,
         }
     }
 
     pub fn reset(&mut self) {
         self.reg.interrupt_disable = true;
+        // Apparently RESET also attempts save the CPU state
+        // to the stack, but it's hijacked to do reads instead
+        // of writes. It still modifies sp, hence the subtraction.
+        self.sp = self.sp.wrapping_sub(3);
         self.pc = self.read_absolute(RESET_VECTOR);
+    }
+
+    pub fn irq(&mut self) {
+        if !self.reg.interrupt_disable {
+            self.interrupt(IRQ_BRK_VECTOR, false);
+        }
+    }
+
+    pub fn nmi(&mut self) {
+        self.interrupt(NMI_VECTOR, false);
+    }
+
+    fn interrupt(&mut self, vector: u16, brk: bool) {
+        let [pc_low, pc_high] = self.pc.to_le_bytes();
+        self.stack_push(pc_high);
+        self.stack_push(pc_low);
+        self.stack_push(self.reg.get_status(brk));
+        self.reg.interrupt_disable = true;
+        self.pc = self.read_absolute(vector);
     }
 
     fn read_absolute(&mut self, addr: u16) -> u16 {
@@ -198,12 +221,7 @@ impl<B: Bus> Cpu6502<B> {
             // Interrupt ops
             (0, 0, 0) => { // BRK
                 self.pc = self.pc.wrapping_add(1);
-                let [pc_low, pc_high] = self.pc.to_le_bytes();
-                self.stack_push(pc_high);
-                self.stack_push(pc_low);
-                self.stack_push(self.reg.get_status(true));
-                self.reg.interrupt_disable = true;
-                self.pc = self.read_absolute(IRQ_BRK_VECTOR);
+                self.interrupt(IRQ_BRK_VECTOR, true);
             }
             (2, 0, 0) => { // RTI
                 let status = self.stack_pop();

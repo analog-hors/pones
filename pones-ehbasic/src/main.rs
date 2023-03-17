@@ -66,7 +66,6 @@ fn main() {
     let term = Term::stdout();
     let bus = EhBasicBus::new(term);
     let mut cpu = Cpu6502::new(bus);
-    cpu.pc = PROGRAM_ADDR;
     cpu.reset();
     loop {
         cpu.step();

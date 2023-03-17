@@ -7,7 +7,7 @@ basic.bin: min_mon.o
 		min_mon.o
 
 min_mon.o: min_mon.s basic.s
-	$(CA65) --cpu 65C02 --feature labels_without_colons min_mon.s
+	$(CA65) --cpu 6502 --feature labels_without_colons min_mon.s
 
 clean:
 	rm -f min_mon.o basic.bin
