@@ -39,16 +39,12 @@ impl<B: Bus> Cpu6502<B> {
         }
     }
 
-    fn read_u8(&mut self, addr: u16) -> u8 {
-        self.bus.read(addr)
-    }
-
     fn read_u16(&mut self, addr: u16) -> u16 {
-        u16::from_le_bytes([self.read_u8(addr), self.read_u8(addr.wrapping_add(1))])
+        u16::from_le_bytes([self.bus.read(addr), self.bus.read(addr.wrapping_add(1))])
     }
 
     fn take_u8_at_pc(&mut self) -> u8 {
-        let byte = self.read_u8(self.pc);
+        let byte = self.bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         byte
     }
@@ -64,7 +60,7 @@ impl<B: Bus> Cpu6502<B> {
 
     fn stack_pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read_u8(STACK_START + self.sp as u16)
+        self.bus.read(STACK_START + self.sp as u16)
     }
 
     fn interrupt(&mut self, vector: u16, brk: bool) {
