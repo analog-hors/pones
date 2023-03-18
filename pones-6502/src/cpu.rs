@@ -72,6 +72,18 @@ impl<B: Bus> Cpu6502<B> {
         self.pc = self.read_u16(vector);
     }
 
+    fn binary_adc(&mut self, operand: u8) {
+        let operand = operand as u16;
+        let carry = self.reg.carry as u16;
+        let result = self.reg.a as u16 + operand + carry;
+        let seven_bit_result = (self.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
+        let carry_out = result > 0xFF;
+        let seven_bit_carry_out = seven_bit_result > 0x7F;
+        self.reg.carry = carry_out;
+        self.reg.overflow = carry_out != seven_bit_carry_out;
+        self.reg.update_a(result as u8);
+    }
+
     pub fn reset(&mut self) {
         self.reg.interrupt_disable = true;
         // Apparently RESET also attempts save the CPU state
@@ -327,63 +339,48 @@ impl<B: Bus> Cpu6502<B> {
 
     // Math ops
     fn adc(&mut self, addr: u16) {
-        // this is weird as hell will explain later maybe
-        let operand = self.bus.read(addr) as u16;
-        let carry = self.reg.carry as u16;
-        let result = self.reg.a as u16 + operand + carry;
-        let sevenbit_result = (self.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
-        let carryout = result > 0xFF;
-        self.reg.carry = carryout;
-        self.reg.overflow = carryout != (sevenbit_result > 0x7F);
-        self.reg.update_nz_flags(result as u8);
-        // self.reg.a is directly set here because decimal mode is weird
-        if self.reg.decimal {
-            self.reg.carry = false;
-            let mut lower = (self.reg.a as u16 & 0xF) + (operand & 0xF) + carry;
-            let mut upper = (self.reg.a as u16 >> 4) + (operand >> 4);
+        let operand = self.bus.read(addr);
+        if !self.reg.decimal {
+            self.binary_adc(operand);
+        } else {
+            let mut carry_out = false;
+            let mut lower = (self.reg.a & 0xF) + (operand & 0xF) + self.reg.carry as u8;
+            let mut upper = (self.reg.a >> 4) + (operand >> 4);
             if lower >= 10 {
                 lower = (lower - 10) & 0xF;
                 upper += 1;
             }
             if upper >= 10 {
                 upper = (upper - 10) & 0xF;
-                self.reg.carry = true;
+                carry_out = true;
             }
-            self.reg.a = ((upper << 4) | lower) as u8;
-        } else {
-            self.reg.a = result as u8;
+            let result = (upper << 4) | lower;
+            self.reg.carry = carry_out;
+            self.reg.update_a(result);
+            //TODO set flags even in decimal mode
         }
     }
 
     fn sbc(&mut self, addr: u16) {
-        let operand = (!self.bus.read(addr)) as u16;
-        let carry = self.reg.carry as u16;
-        let result = self.reg.a as u16 + operand + carry;
-        let sevenbit_result = (self.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
-        let carryout = result > 0xFF;
-        self.reg.carry = carryout;
-        self.reg.overflow = carryout != (sevenbit_result > 0x7F);
-        self.reg.update_nz_flags(result as u8);
-        // self.reg.a is directly set here because decimal mode is weird
-        if self.reg.decimal {
-            let operand = (!(operand as u8)) as u16;
-            self.reg.carry = true;
-            let mut lower = (self.reg.a as u16 & 0xF)
-                .wrapping_sub(operand & 0xF)
-                .wrapping_sub(1 - carry);
-            let mut upper = (self.reg.a as u16 >> 4)
-                .wrapping_sub(operand >> 4);
-            if lower >= 10 {
-                lower = (lower.wrapping_add(10)) & 0xF;
-                upper = upper.wrapping_sub(1);
-            }
-            if upper >= 10 {
-                upper = (upper.wrapping_add(10)) & 0xF;
-                self.reg.carry = false;
-            }
-            self.reg.a = ((upper << 4) | lower) as u8;
+        let operand = self.bus.read(addr);
+        if !self.reg.decimal {
+            self.binary_adc(!operand); // works due to two's complement
         } else {
-            self.reg.a = result as u8;
+            let mut carry_out = true;
+            let mut lower = (self.reg.a as i16 & 0xF) - (operand as i16 & 0xF) - !self.reg.carry as i16;
+            let mut upper = (self.reg.a as i16 >> 4) - (operand as i16 >> 4);
+            if lower & 0x10 != 0 {
+                lower = (lower + 10) & 0xF;
+                upper -= 1;
+            }
+            if upper & 0x10 != 0 {
+                upper = (upper + 10) & 0xF;
+                carry_out = false;
+            }
+            let result = (upper << 4) as u8 | lower as u8;
+            self.reg.carry = carry_out;
+            self.reg.update_a(result);
+            //TODO set flags even in decimal mode
         }
     }
 

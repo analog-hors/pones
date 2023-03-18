@@ -79,6 +79,11 @@ fn decimal_test() {
     const N2_ADDR: u16 = 0x0001;
     const DA_ADDR: u16 = 0x0004;
     const AR_ADDR: u16 = 0x0006;
+    const DNVZC_ADDR: u16 = 0x0005;
+    const NF_ADDR: u16 = 0x0007;
+    const VF_ADDR: u16 = 0x0008;
+    const ZF_ADDR: u16 = 0x0009;
+    const CF_ADDR: u16 = 0x000A;
 
     let mem = load_mem("decimal/bin/6502_decimal_test.bin", BIN_START_ADDR);
     let mut cpu = Cpu6502::new(mem);
@@ -87,10 +92,19 @@ fn decimal_test() {
         cpu.step();
     }
     if cpu.bus.read(ERROR_ADDR) != 0 {
+        eprintln!("CB = {}", cpu.reg.y);
         eprintln!("N1 = {}", cpu.bus.read(N1_ADDR));
         eprintln!("N2 = {}", cpu.bus.read(N2_ADDR));
         eprintln!("DA = {}", cpu.bus.read(DA_ADDR));
         eprintln!("AR = {}", cpu.bus.read(AR_ADDR));
+        eprintln!("ND = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 7) != 0);
+        eprintln!("VD = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 6) != 0);
+        eprintln!("ZD = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 1) != 0);
+        eprintln!("CD = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 0) != 0);
+        eprintln!("NF = {}", cpu.bus.read(NF_ADDR) & (1 << 7) != 0);
+        eprintln!("VF = {}", cpu.bus.read(VF_ADDR) & (1 << 6) != 0);
+        eprintln!("ZF = {}", cpu.bus.read(ZF_ADDR) & (1 << 1) != 0);
+        eprintln!("CF = {}", cpu.bus.read(CF_ADDR) & (1 << 0) != 0);
         panic!("decimal mode test failed");
     }
 }
