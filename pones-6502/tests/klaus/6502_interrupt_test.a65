@@ -191,8 +191,7 @@ set_stat    macro       ;setting flags in the processor status register
     else
         bss                 ;uninitialized segment, copy of data at end of code!
     endif
-        org 0               ;edited to provide binaries loading from 0
-        ds  zero_page
+        org zero_page
 ;BRK, IRQ, NMI test interrupt save
 zpt
 irq_a   ds  1               ;a register

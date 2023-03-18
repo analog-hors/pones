@@ -614,8 +614,7 @@ test_num = test_num + 1
     else
         bss                 ;uninitialized segment, copy of data at end of code!
     endif
-        org 0               ;edited to provide binaries loading from 0
-        ds  zero_page
+        org zero_page
 ;break test interrupt save
 irq_a   ds  1               ;a register
 irq_x   ds  1               ;x register

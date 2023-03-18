@@ -1,7 +1,7 @@
 AS65 Assembler for R6502 [1.42].  Copyright 1994-2007, Frank A. Kingswood                                                Page    1
 ---------------------------------------------------- 6502_functional_test.a65 ----------------------------------------------------
 
-6109 lines read, no errors in pass 1.
+6108 lines read, no errors in pass 1.
                         ;
                         ; 6 5 0 2   F U N C T I O N A L   T E S T
                         ;
@@ -618,8 +618,7 @@ ffff =                  ram_top = -1
                             else
                                 bss                 ;uninitialized segment, copy of data at end of code!
                             endif
-0000 =                          org 0               ;edited to provide binaries loading from 0
-0000 : 00000000000000..         ds  zero_page
+000a =                          org zero_page
                         ;break test interrupt save
 000a : 00               irq_a   ds  1               ;a register
 000b : 00               irq_x   ds  1               ;x register
@@ -14359,7 +14358,7 @@ fffe : ab37                     dw  irq_trap
 fffa =                          end start
                                     
 No errors in pass 2.
-Wrote binary from address $0000 through $ffff.
-Total size 65536 bytes.
+Wrote binary from address $000a through $ffff.
+Total size 65526 bytes.
 Program start address is at $0400 (1024).
 

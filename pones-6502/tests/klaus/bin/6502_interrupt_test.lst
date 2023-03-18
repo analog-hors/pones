@@ -1,7 +1,7 @@
 AS65 Assembler for R6502 [1.42].  Copyright 1994-2007, Frank A. Kingswood                                                Page    1
 ---------------------------------------------------- 6502_interrupt_test.a65 -----------------------------------------------------
 
-1026 lines read, no errors in pass 1.
+1025 lines read, no errors in pass 1.
                         ;
                         ; 6 5 0 2   I N T E R R U P T   T E S T
                         ;
@@ -195,8 +195,7 @@ bffc =                  I_port      = $bffc     ;feedback port address
                             else
                                 bss                 ;uninitialized segment, copy of data at end of code!
                             endif
-0000 =                          org 0               ;edited to provide binaries loading from 0
-0000 : 00000000000000..         ds  zero_page
+000a =                          org zero_page
                         ;BRK, IRQ, NMI test interrupt save
 000a :                  zpt
 000a : 00               irq_a   ds  1               ;a register
@@ -1370,7 +1369,7 @@ fffa =                          end start
                                 
                             
 No errors in pass 2.
-Wrote binary from address $0000 through $ffff.
-Total size 65536 bytes.
+Wrote binary from address $000a through $ffff.
+Total size 65526 bytes.
 Program start address is at $0400 (1024).
 
