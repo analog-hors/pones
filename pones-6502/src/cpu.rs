@@ -412,8 +412,9 @@ impl<B: Bus> Cpu6502<B> {
 
     // Bitwise read-modify-write ops
     fn asl(&mut self, addr: u16) {
-        self.reg.carry = self.reg.a & 0b1000_0000 != 0;
-        let result = self.reg.a << 1;
+        let n = self.bus.read(addr);
+        self.reg.carry = n & 0b1000_0000 != 0;
+        let result = n << 1;
         self.bus.write(addr, result);
         self.reg.update_nz_flags(result);
     }
@@ -424,9 +425,10 @@ impl<B: Bus> Cpu6502<B> {
     }
 
     fn rol(&mut self, addr: u16) {
+        let n = self.bus.read(addr);
         let carry = self.reg.carry;
-        self.reg.carry = self.reg.a & 0b1000_0000 != 0;
-        let result = (self.reg.a << 1) | carry as u8;
+        self.reg.carry = n & 0b1000_0000 != 0;
+        let result = (n << 1) | carry as u8;
         self.bus.write(addr, result);
         self.reg.update_nz_flags(result);
     }
@@ -438,8 +440,9 @@ impl<B: Bus> Cpu6502<B> {
     }
 
     fn lsr(&mut self, addr: u16) {
-        self.reg.carry = self.reg.a & 0b0000_0001 != 0;
-        let result = self.reg.a >> 1;
+        let n = self.bus.read(addr);
+        self.reg.carry = n & 0b0000_0001 != 0;
+        let result = n >> 1;
         self.bus.write(addr, result);
         self.reg.update_nz_flags(result);
     }
@@ -450,9 +453,10 @@ impl<B: Bus> Cpu6502<B> {
     }
 
     fn ror(&mut self, addr: u16) {
+        let n = self.bus.read(addr);
         let carry = self.reg.carry;
-        self.reg.carry = self.reg.a & 0b0000_0001 != 0;
-        let result = (self.reg.a >> 1) | ((carry as u8) << 7);
+        self.reg.carry = n & 0b0000_0001 != 0;
+        let result = (n >> 1) | ((carry as u8) << 7);
         self.bus.write(addr, result);
         self.reg.update_nz_flags(result);
     }
