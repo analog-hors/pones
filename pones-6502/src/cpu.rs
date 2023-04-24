@@ -10,42 +10,48 @@ pub trait Bus {
     fn write(&mut self, addr: u16, value: u8);
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CpuFlag {
-    Carry,
-    Zero,
-    InterruptDisable,
-    Decimal,
-    Break,
-    Reserved,
-    Overflow,
-    Negative
-}
-
-pub struct Cpu6502<B> {
-    pub bus: B,
+#[derive(Debug, Clone, Default)]
+pub struct Cpu6502 {
     pub reg: RegisterState,
     pub sp: u8,
     pub pc: u16,
 }
 
-impl<B: Bus> Cpu6502<B> {
-    pub fn new(bus: B) -> Self {
-        Self {
-            bus,
-            reg: RegisterState::default(),
-            sp: 0,
-            pc: 0,
-        }
+impl Cpu6502 {
+    pub fn new() -> Self {
+        Self::default()
     }
 
+    pub fn step(&mut self, bus: &mut impl Bus) {
+        CpuWithBus { cpu: self, bus }.step()
+    }
+
+    pub fn reset(&mut self, bus: &mut impl Bus) {
+        CpuWithBus { cpu: self, bus }.reset()
+    }
+
+    pub fn irq(&mut self, bus: &mut impl Bus) {
+        CpuWithBus { cpu: self, bus }.irq()
+    }
+
+    pub fn nmi(&mut self, bus: &mut impl Bus) {
+        CpuWithBus { cpu: self, bus }.nmi()
+    }
+}
+
+struct CpuWithBus<'c, B> {
+    cpu: &'c mut Cpu6502,
+    bus: &'c mut B,
+}
+
+impl<B: Bus> CpuWithBus<'_, B> {
     fn read_u16(&mut self, addr: u16) -> u16 {
         u16::from_le_bytes([self.bus.read(addr), self.bus.read(addr.wrapping_add(1))])
     }
 
     fn take_u8_at_pc(&mut self) -> u8 {
-        let byte = self.bus.read(self.pc);
-        self.pc = self.pc.wrapping_add(1);
+        let byte = self.bus.read(self.cpu.pc);
+        self.cpu.pc = self.cpu.pc.wrapping_add(1);
         byte
     }
 
@@ -54,298 +60,298 @@ impl<B: Bus> Cpu6502<B> {
     }
 
     fn stack_push(&mut self, value: u8) {
-        self.bus.write(STACK_START + self.sp as u16, value);
-        self.sp = self.sp.wrapping_sub(1);
+        self.bus.write(STACK_START + self.cpu.sp as u16, value);
+        self.cpu.sp = self.cpu.sp.wrapping_sub(1);
     }
 
     fn stack_pop(&mut self) -> u8 {
-        self.sp = self.sp.wrapping_add(1);
-        self.bus.read(STACK_START + self.sp as u16)
+        self.cpu.sp = self.cpu.sp.wrapping_add(1);
+        self.bus.read(STACK_START + self.cpu.sp as u16)
     }
 
     fn interrupt(&mut self, vector: u16, brk: bool) {
-        let [pc_low, pc_high] = self.pc.to_le_bytes();
+        let [pc_low, pc_high] = self.cpu.pc.to_le_bytes();
         self.stack_push(pc_high);
         self.stack_push(pc_low);
-        self.stack_push(self.reg.get_status(brk));
-        self.reg.interrupt_disable = true;
-        self.pc = self.read_u16(vector);
+        self.stack_push(self.cpu.reg.get_status(brk));
+        self.cpu.reg.interrupt_disable = true;
+        self.cpu.pc = self.read_u16(vector);
     }
 
     fn binary_adc(&mut self, operand: u8) {
         let operand = operand as u16;
-        let carry = self.reg.carry as u16;
-        let result = self.reg.a as u16 + operand + carry;
-        let seven_bit_result = (self.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
+        let carry = self.cpu.reg.carry as u16;
+        let result = self.cpu.reg.a as u16 + operand + carry;
+        let seven_bit_result = (self.cpu.reg.a as u16 & 0x7F) + (operand & 0x7F) + carry;
         let carry_out = result > 0xFF;
         let seven_bit_carry_out = seven_bit_result > 0x7F;
-        self.reg.carry = carry_out;
-        self.reg.overflow = carry_out != seven_bit_carry_out;
-        self.reg.update_a(result as u8);
+        self.cpu.reg.carry = carry_out;
+        self.cpu.reg.overflow = carry_out != seven_bit_carry_out;
+        self.cpu.reg.update_a(result as u8);
     }
 
-    pub fn reset(&mut self) {
-        self.reg.interrupt_disable = true;
+    fn reset(&mut self) {
+        self.cpu.reg.interrupt_disable = true;
         // Apparently RESET also attempts save the CPU state
         // to the stack, but it's hijacked to do reads instead
         // of writes. It still modifies sp, hence the subtraction.
-        self.sp = self.sp.wrapping_sub(3);
-        self.pc = self.read_u16(RESET_VECTOR);
+        self.cpu.sp = self.cpu.sp.wrapping_sub(3);
+        self.cpu.pc = self.read_u16(RESET_VECTOR);
     }
 
-    pub fn irq(&mut self) {
-        if !self.reg.interrupt_disable {
+    fn irq(&mut self) {
+        if !self.cpu.reg.interrupt_disable {
             self.interrupt(IRQ_BRK_VECTOR, false);
         }
     }
 
-    pub fn nmi(&mut self) {
+    fn nmi(&mut self) {
         self.interrupt(NMI_VECTOR, false);
     }
 
     // Branch ops
     fn bpl(&mut self, addr: u16) {
-        if !self.reg.negative {
-            self.pc = addr;
+        if !self.cpu.reg.negative {
+            self.cpu.pc = addr;
         }
     }
     
     fn bmi(&mut self, addr: u16) {
-        if self.reg.negative {
-            self.pc = addr;
+        if self.cpu.reg.negative {
+            self.cpu.pc = addr;
         }
     }
     
     fn bvc(&mut self, addr: u16) {
-        if !self.reg.overflow {
-            self.pc = addr;
+        if !self.cpu.reg.overflow {
+            self.cpu.pc = addr;
         }
     }
     
     fn bvs(&mut self, addr: u16) {
-        if self.reg.overflow {
-            self.pc = addr;
+        if self.cpu.reg.overflow {
+            self.cpu.pc = addr;
         }
     }
     
     fn bcc(&mut self, addr: u16) {
-        if !self.reg.carry {
-            self.pc = addr;
+        if !self.cpu.reg.carry {
+            self.cpu.pc = addr;
         }
     }
     
     fn bcs(&mut self, addr: u16) {
-        if self.reg.carry {
-            self.pc = addr;
+        if self.cpu.reg.carry {
+            self.cpu.pc = addr;
         }
     }
     
     fn bne(&mut self, addr: u16) {
-        if !self.reg.zero {
-            self.pc = addr;
+        if !self.cpu.reg.zero {
+            self.cpu.pc = addr;
         }
     }
     
     fn beq(&mut self, addr: u16) {
-        if self.reg.zero {
-            self.pc = addr;
+        if self.cpu.reg.zero {
+            self.cpu.pc = addr;
         }
     }
 
     // Flag ops
     fn clc_implied(&mut self) {
-        self.reg.carry = false;
+        self.cpu.reg.carry = false;
     }
     
     fn sec_implied(&mut self) {
-        self.reg.carry = true;
+        self.cpu.reg.carry = true;
     }
     
     fn cli_implied(&mut self) {
-        self.reg.interrupt_disable = false;
+        self.cpu.reg.interrupt_disable = false;
     }
     
     fn sei_implied(&mut self) {
-        self.reg.interrupt_disable = true;
+        self.cpu.reg.interrupt_disable = true;
     }
     
     fn cld_implied(&mut self) {
-        self.reg.decimal = false;
+        self.cpu.reg.decimal = false;
     }
     
     fn sed_implied(&mut self) {
-        self.reg.decimal = true;
+        self.cpu.reg.decimal = true;
     }
 
     fn clv_implied(&mut self) {
-        self.reg.overflow = false;
+        self.cpu.reg.overflow = false;
     }
     
     // Jumps and subroutine ops
     fn jmp(&mut self, addr: u16) {
-        self.pc = addr;
+        self.cpu.pc = addr;
     }
 
     fn jsr(&mut self, addr: u16) {
-        let return_addr = self.pc.wrapping_sub(1);
+        let return_addr = self.cpu.pc.wrapping_sub(1);
         let [ret_low, ret_high] = return_addr.to_le_bytes();
         self.stack_push(ret_high);
         self.stack_push(ret_low);
-        self.pc = addr;
+        self.cpu.pc = addr;
     }
 
     fn rts_implied(&mut self) {
         let ret_low = self.stack_pop();
         let ret_high = self.stack_pop();
         let return_addr = u16::from_le_bytes([ret_low, ret_high]);
-        self.pc = return_addr.wrapping_add(1);
+        self.cpu.pc = return_addr.wrapping_add(1);
     }
 
     // Interrupt ops
     fn brk_implied(&mut self) {
-        self.pc = self.pc.wrapping_add(1);
+        self.cpu.pc = self.cpu.pc.wrapping_add(1);
         self.interrupt(IRQ_BRK_VECTOR, true);
     }
 
     fn rti_implied(&mut self) {
         let status = self.stack_pop();
-        self.reg.set_status(status);
+        self.cpu.reg.set_status(status);
         let ret_low = self.stack_pop();
         let ret_high = self.stack_pop();
-        self.pc = u16::from_le_bytes([ret_low, ret_high]);
+        self.cpu.pc = u16::from_le_bytes([ret_low, ret_high]);
     }
 
     // Stack ops
     fn php_implied(&mut self) {
-        self.stack_push(self.reg.get_status(true));
+        self.stack_push(self.cpu.reg.get_status(true));
     }
     
     fn plp_implied(&mut self) {
         let status = self.stack_pop();
-        self.reg.set_status(status);
+        self.cpu.reg.set_status(status);
     }
 
     fn pha_implied(&mut self) {
-        self.stack_push(self.reg.a);
+        self.stack_push(self.cpu.reg.a);
     }
 
     fn pla_implied(&mut self) {
         let a = self.stack_pop();
-        self.reg.update_a(a);
+        self.cpu.reg.update_a(a);
     }
 
     // Store and load ops
     fn sty(&mut self, addr: u16) {
-        self.bus.write(addr, self.reg.y);
+        self.bus.write(addr, self.cpu.reg.y);
     }
 
     fn ldy(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_y(n);
+        self.cpu.reg.update_y(n);
     }
 
     fn stx(&mut self, addr: u16) {
-        self.bus.write(addr, self.reg.x);
+        self.bus.write(addr, self.cpu.reg.x);
     }
 
     fn ldx(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_x(n);
+        self.cpu.reg.update_x(n);
     }
 
     fn sta(&mut self, addr: u16) {
-        self.bus.write(addr, self.reg.a);
+        self.bus.write(addr, self.cpu.reg.a);
     }
 
     fn lda(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_a(n);
+        self.cpu.reg.update_a(n);
     }
 
     // Transfer ops
     fn tya_implied(&mut self) {
-        self.reg.update_a(self.reg.y);
+        self.cpu.reg.update_a(self.cpu.reg.y);
     }
 
     fn tay_implied(&mut self) {
-        self.reg.update_y(self.reg.a);
+        self.cpu.reg.update_y(self.cpu.reg.a);
     }
 
     fn txa_implied(&mut self) {
-        self.reg.update_a(self.reg.x);
+        self.cpu.reg.update_a(self.cpu.reg.x);
     }
 
     fn tax_implied(&mut self) {
-        self.reg.update_x(self.reg.a);
+        self.cpu.reg.update_x(self.cpu.reg.a);
     }
 
     fn txs_implied(&mut self) {
-        self.sp = self.reg.x;
+        self.cpu.sp = self.cpu.reg.x;
     }
 
     fn tsx_implied(&mut self) {
-        self.reg.update_x(self.sp);
+        self.cpu.reg.update_x(self.cpu.sp);
     }
 
     // Increment and decrement ops
     fn iny_implied(&mut self) {
-        self.reg.update_y(self.reg.y.wrapping_add(1));
+        self.cpu.reg.update_y(self.cpu.reg.y.wrapping_add(1));
     }
 
     fn dey_implied(&mut self) {
-        self.reg.update_y(self.reg.y.wrapping_sub(1))
+        self.cpu.reg.update_y(self.cpu.reg.y.wrapping_sub(1))
     }
 
     fn inx_implied(&mut self) {
-        self.reg.update_x(self.reg.x.wrapping_add(1));
+        self.cpu.reg.update_x(self.cpu.reg.x.wrapping_add(1));
     }
 
     fn dex_implied(&mut self) {
-        self.reg.update_x(self.reg.x.wrapping_sub(1))
+        self.cpu.reg.update_x(self.cpu.reg.x.wrapping_sub(1))
     }
 
     fn inc(&mut self, addr: u16) {
         let n = self.bus.read(addr);
         let result = n.wrapping_add(1);
         self.bus.write(addr, result);
-        self.reg.update_nz_flags(result);
+        self.cpu.reg.update_nz_flags(result);
     }
 
     fn dec(&mut self, addr: u16) {
         let n = self.bus.read(addr);
         let result = n.wrapping_sub(1);
         self.bus.write(addr, result);
-        self.reg.update_nz_flags(result);
+        self.cpu.reg.update_nz_flags(result);
     }
 
     // Compare ops
     fn cpy(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_nz_flags(self.reg.y.wrapping_sub(n));
-        self.reg.carry = self.reg.y >= n;
+        self.cpu.reg.update_nz_flags(self.cpu.reg.y.wrapping_sub(n));
+        self.cpu.reg.carry = self.cpu.reg.y >= n;
     }
 
     fn cpx(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_nz_flags(self.reg.x.wrapping_sub(n));
-        self.reg.carry = self.reg.x >= n;
+        self.cpu.reg.update_nz_flags(self.cpu.reg.x.wrapping_sub(n));
+        self.cpu.reg.carry = self.cpu.reg.x >= n;
     }
 
     fn cmp(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_nz_flags(self.reg.a.wrapping_sub(n));
-        self.reg.carry = self.reg.a >= n;
+        self.cpu.reg.update_nz_flags(self.cpu.reg.a.wrapping_sub(n));
+        self.cpu.reg.carry = self.cpu.reg.a >= n;
     }
 
     // Math ops
     fn adc(&mut self, addr: u16) {
         let operand = self.bus.read(addr);
-        if !self.reg.decimal {
+        if !self.cpu.reg.decimal {
             self.binary_adc(operand);
         } else {
             let mut carry_out = false;
-            let mut lower = (self.reg.a & 0xF) + (operand & 0xF) + self.reg.carry as u8;
-            let mut upper = (self.reg.a >> 4) + (operand >> 4);
+            let mut lower = (self.cpu.reg.a & 0xF) + (operand & 0xF) + self.cpu.reg.carry as u8;
+            let mut upper = (self.cpu.reg.a >> 4) + (operand >> 4);
             if lower >= 10 {
                 lower = (lower - 10) & 0xF;
                 upper += 1;
@@ -355,20 +361,20 @@ impl<B: Bus> Cpu6502<B> {
                 carry_out = true;
             }
             let result = (upper << 4) | lower;
-            self.reg.carry = carry_out;
-            self.reg.update_a(result);
+            self.cpu.reg.carry = carry_out;
+            self.cpu.reg.update_a(result);
             //TODO set flags even in decimal mode
         }
     }
 
     fn sbc(&mut self, addr: u16) {
         let operand = self.bus.read(addr);
-        if !self.reg.decimal {
+        if !self.cpu.reg.decimal {
             self.binary_adc(!operand); // works due to two's complement
         } else {
             let mut carry_out = true;
-            let mut lower = (self.reg.a as i16 & 0xF) - (operand as i16 & 0xF) - !self.reg.carry as i16;
-            let mut upper = (self.reg.a as i16 >> 4) - (operand as i16 >> 4);
+            let mut lower = (self.cpu.reg.a as i16 & 0xF) - (operand as i16 & 0xF) - !self.cpu.reg.carry as i16;
+            let mut upper = (self.cpu.reg.a as i16 >> 4) - (operand as i16 >> 4);
             if lower & 0x10 != 0 {
                 lower = (lower + 10) & 0xF;
                 upper -= 1;
@@ -378,8 +384,8 @@ impl<B: Bus> Cpu6502<B> {
                 carry_out = false;
             }
             let result = (upper << 4) as u8 | lower as u8;
-            self.reg.carry = carry_out;
-            self.reg.update_a(result);
+            self.cpu.reg.carry = carry_out;
+            self.cpu.reg.update_a(result);
             //TODO set flags even in decimal mode
         }
     }
@@ -387,88 +393,88 @@ impl<B: Bus> Cpu6502<B> {
     // Bitwise ops
     fn ora(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_a(self.reg.a | n);
+        self.cpu.reg.update_a(self.cpu.reg.a | n);
     }
 
     fn and(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_a(self.reg.a & n);
+        self.cpu.reg.update_a(self.cpu.reg.a & n);
     }
 
     fn eor(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.update_a(self.reg.a ^ n);
+        self.cpu.reg.update_a(self.cpu.reg.a ^ n);
     }
 
     fn bit(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.zero = self.reg.a & n == 0;
-        self.reg.negative = n & 0b1000_0000 != 0;
-        self.reg.overflow = n & 0b0100_0000 != 0;
+        self.cpu.reg.zero = self.cpu.reg.a & n == 0;
+        self.cpu.reg.negative = n & 0b1000_0000 != 0;
+        self.cpu.reg.overflow = n & 0b0100_0000 != 0;
     }
 
     // Bitwise read-modify-write ops
     fn asl(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.carry = n & 0b1000_0000 != 0;
+        self.cpu.reg.carry = n & 0b1000_0000 != 0;
         let result = n << 1;
         self.bus.write(addr, result);
-        self.reg.update_nz_flags(result);
+        self.cpu.reg.update_nz_flags(result);
     }
 
     fn asl_implied(&mut self) {
-        self.reg.carry = self.reg.a & 0b1000_0000 != 0;
-        self.reg.update_a(self.reg.a << 1);
+        self.cpu.reg.carry = self.cpu.reg.a & 0b1000_0000 != 0;
+        self.cpu.reg.update_a(self.cpu.reg.a << 1);
     }
 
     fn rol(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        let carry = self.reg.carry;
-        self.reg.carry = n & 0b1000_0000 != 0;
+        let carry = self.cpu.reg.carry;
+        self.cpu.reg.carry = n & 0b1000_0000 != 0;
         let result = (n << 1) | carry as u8;
         self.bus.write(addr, result);
-        self.reg.update_nz_flags(result);
+        self.cpu.reg.update_nz_flags(result);
     }
 
     fn rol_implied(&mut self) {
-        let carry = self.reg.carry;
-        self.reg.carry = self.reg.a & 0b1000_0000 != 0;
-        self.reg.update_a((self.reg.a << 1) | carry as u8);
+        let carry = self.cpu.reg.carry;
+        self.cpu.reg.carry = self.cpu.reg.a & 0b1000_0000 != 0;
+        self.cpu.reg.update_a((self.cpu.reg.a << 1) | carry as u8);
     }
 
     fn lsr(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        self.reg.carry = n & 0b0000_0001 != 0;
+        self.cpu.reg.carry = n & 0b0000_0001 != 0;
         let result = n >> 1;
         self.bus.write(addr, result);
-        self.reg.update_nz_flags(result);
+        self.cpu.reg.update_nz_flags(result);
     }
 
     fn lsr_implied(&mut self) {
-        self.reg.carry = self.reg.a & 0b0000_0001 != 0;
-        self.reg.update_a(self.reg.a >> 1);
+        self.cpu.reg.carry = self.cpu.reg.a & 0b0000_0001 != 0;
+        self.cpu.reg.update_a(self.cpu.reg.a >> 1);
     }
 
     fn ror(&mut self, addr: u16) {
         let n = self.bus.read(addr);
-        let carry = self.reg.carry;
-        self.reg.carry = n & 0b0000_0001 != 0;
+        let carry = self.cpu.reg.carry;
+        self.cpu.reg.carry = n & 0b0000_0001 != 0;
         let result = (n >> 1) | ((carry as u8) << 7);
         self.bus.write(addr, result);
-        self.reg.update_nz_flags(result);
+        self.cpu.reg.update_nz_flags(result);
     }
 
     fn ror_implied(&mut self) {
-        let carry = self.reg.carry;
-        self.reg.carry = self.reg.a & 0b0000_0001 != 0;
-        self.reg.update_a((self.reg.a >> 1) | ((carry as u8) << 7));
+        let carry = self.cpu.reg.carry;
+        self.cpu.reg.carry = self.cpu.reg.a & 0b0000_0001 != 0;
+        self.cpu.reg.update_a((self.cpu.reg.a >> 1) | ((carry as u8) << 7));
     }
 
     // No op
     fn nop_implied(&mut self) {
     }
 
-    pub fn step(&mut self) {
+    fn step(&mut self) {
         // #i    - immediate value
         // d     - zero page address
         // *+d   - relative address
@@ -488,14 +494,14 @@ impl<B: Bus> Cpu6502<B> {
             }};
 
             (@call $handler:ident "#i") => {{
-                let addr = self.pc;
+                let addr = self.cpu.pc;
                 self.take_u8_at_pc();
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "*+d") => {{
                 let offset = self.take_u8_at_pc() as i8 as u16;
-                let addr = self.pc.wrapping_add(offset);
+                let addr = self.cpu.pc.wrapping_add(offset);
                 self.$handler(addr);
             }};
             
@@ -516,34 +522,34 @@ impl<B: Bus> Cpu6502<B> {
             }};
             
             (@call $handler:ident "a,x") => {{
-                let addr = self.take_u16_at_pc().wrapping_add(self.reg.x as u16);
+                let addr = self.take_u16_at_pc().wrapping_add(self.cpu.reg.x as u16);
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "a,y") => {{
-                let addr = self.take_u16_at_pc().wrapping_add(self.reg.y as u16);
+                let addr = self.take_u16_at_pc().wrapping_add(self.cpu.reg.y as u16);
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "d,x") => {{
-                let addr = self.take_u8_at_pc().wrapping_add(self.reg.x) as u16;
+                let addr = self.take_u8_at_pc().wrapping_add(self.cpu.reg.x) as u16;
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "d,y") => {{
-                let addr = self.take_u8_at_pc().wrapping_add(self.reg.y) as u16;
+                let addr = self.take_u8_at_pc().wrapping_add(self.cpu.reg.y) as u16;
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "(d,x)") => {{
-                let addr = self.take_u8_at_pc().wrapping_add(self.reg.x) as u16;
+                let addr = self.take_u8_at_pc().wrapping_add(self.cpu.reg.x) as u16;
                 let addr = self.read_u16(addr);
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "(d),y") => {{
                 let addr = self.take_u8_at_pc() as u16;
-                let addr = self.read_u16(addr).wrapping_add(self.reg.y as u16);
+                let addr = self.read_u16(addr).wrapping_add(self.cpu.reg.y as u16);
                 self.$handler(addr);
             }};
         }

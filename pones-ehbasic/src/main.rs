@@ -64,10 +64,10 @@ impl Bus for EhBasicBus {
 
 fn main() {
     let term = Term::stdout();
-    let bus = EhBasicBus::new(term);
-    let mut cpu = Cpu6502::new(bus);
-    cpu.reset();
+    let mut bus = EhBasicBus::new(term);
+    let mut cpu = Cpu6502::new();
+    cpu.reset(&mut bus);
     loop {
-        cpu.step();
+        cpu.step(&mut bus);
     }
 }

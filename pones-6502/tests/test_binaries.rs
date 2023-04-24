@@ -26,12 +26,12 @@ fn functional_test() {
     const PROGRAM_START: u16 = 0x0400;
     const SUCCESS_TRAP: u16 = 0x3469;
 
-    let mem = load_mem("klaus/bin/6502_functional_test.bin", BIN_START_ADDR);
-    let mut cpu = Cpu6502::new(mem);
+    let mut mem = load_mem("klaus/bin/6502_functional_test.bin", BIN_START_ADDR);
+    let mut cpu = Cpu6502::new();
     cpu.pc = PROGRAM_START;
     loop {
         let prev_pc = cpu.pc;
-        cpu.step();
+        cpu.step(&mut mem);
         if cpu.pc == prev_pc {
             break;
         }
@@ -48,19 +48,19 @@ fn interrupt_test() {
     const IRQ_BIT: u8 = 1 << 0;
     const NMI_BIT: u8 = 1 << 1;
 
-    let mem = load_mem("klaus/bin/6502_interrupt_test.bin", BIN_START_ADDR);
-    let mut cpu = Cpu6502::new(mem);
+    let mut mem = load_mem("klaus/bin/6502_interrupt_test.bin", BIN_START_ADDR);
+    let mut cpu = Cpu6502::new();
     cpu.pc = PROGRAM_START;
-    cpu.bus.write(FEEDBACK_ADDR, 0);
+    mem.write(FEEDBACK_ADDR, 0);
     loop {
-        let prev_feedback = cpu.bus.read(FEEDBACK_ADDR);
+        let prev_feedback = mem.read(FEEDBACK_ADDR);
         let prev_pc = cpu.pc;
-        cpu.step();
-        let feedback = cpu.bus.read(FEEDBACK_ADDR);
+        cpu.step(&mut mem);
+        let feedback = mem.read(FEEDBACK_ADDR);
         if (feedback & !prev_feedback) & NMI_BIT != 0 {
-            cpu.nmi();
+            cpu.nmi(&mut mem);
         } else if feedback & IRQ_BIT != 0 {
-            cpu.irq();
+            cpu.irq(&mut mem);
         }
         if cpu.pc == prev_pc {
             break;
@@ -85,26 +85,26 @@ fn decimal_test() {
     const ZF_ADDR: u16 = 0x0009;
     const CF_ADDR: u16 = 0x000A;
 
-    let mem = load_mem("decimal/bin/6502_decimal_test.bin", BIN_START_ADDR);
-    let mut cpu = Cpu6502::new(mem);
+    let mut mem = load_mem("decimal/bin/6502_decimal_test.bin", BIN_START_ADDR);
+    let mut cpu = Cpu6502::new();
     cpu.pc = PROGRAM_START;
     while cpu.pc != DONE_ADDR {
-        cpu.step();
+        cpu.step(&mut mem);
     }
-    if cpu.bus.read(ERROR_ADDR) != 0 {
+    if mem.read(ERROR_ADDR) != 0 {
         eprintln!("CB = {}", cpu.reg.y);
-        eprintln!("N1 = {}", cpu.bus.read(N1_ADDR));
-        eprintln!("N2 = {}", cpu.bus.read(N2_ADDR));
-        eprintln!("DA = {}", cpu.bus.read(DA_ADDR));
-        eprintln!("AR = {}", cpu.bus.read(AR_ADDR));
-        eprintln!("ND = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 7) != 0);
-        eprintln!("VD = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 6) != 0);
-        eprintln!("ZD = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 1) != 0);
-        eprintln!("CD = {}", cpu.bus.read(DNVZC_ADDR) & (1 << 0) != 0);
-        eprintln!("NF = {}", cpu.bus.read(NF_ADDR) & (1 << 7) != 0);
-        eprintln!("VF = {}", cpu.bus.read(VF_ADDR) & (1 << 6) != 0);
-        eprintln!("ZF = {}", cpu.bus.read(ZF_ADDR) & (1 << 1) != 0);
-        eprintln!("CF = {}", cpu.bus.read(CF_ADDR) & (1 << 0) != 0);
+        eprintln!("N1 = {}", mem.read(N1_ADDR));
+        eprintln!("N2 = {}", mem.read(N2_ADDR));
+        eprintln!("DA = {}", mem.read(DA_ADDR));
+        eprintln!("AR = {}", mem.read(AR_ADDR));
+        eprintln!("ND = {}", mem.read(DNVZC_ADDR) & (1 << 7) != 0);
+        eprintln!("VD = {}", mem.read(DNVZC_ADDR) & (1 << 6) != 0);
+        eprintln!("ZD = {}", mem.read(DNVZC_ADDR) & (1 << 1) != 0);
+        eprintln!("CD = {}", mem.read(DNVZC_ADDR) & (1 << 0) != 0);
+        eprintln!("NF = {}", mem.read(NF_ADDR) & (1 << 7) != 0);
+        eprintln!("VF = {}", mem.read(VF_ADDR) & (1 << 6) != 0);
+        eprintln!("ZF = {}", mem.read(ZF_ADDR) & (1 << 1) != 0);
+        eprintln!("CF = {}", mem.read(CF_ADDR) & (1 << 0) != 0);
         panic!("decimal mode test failed");
     }
 }
