@@ -15,11 +15,18 @@ pub struct Cpu6502 {
     pub reg: RegisterState,
     pub sp: u8,
     pub pc: u16,
+    pub decimal_mode_disabled: bool,
 }
 
 impl Cpu6502 {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_no_decimal() -> Self {
+        let mut this = Self::new();
+        this.decimal_mode_disabled = true;
+        this
     }
 
     pub fn step(&mut self, bus: &mut impl Bus) {
@@ -346,7 +353,7 @@ impl<B: Bus> CpuWithBus<'_, B> {
     // Math ops
     fn adc(&mut self, addr: u16) {
         let operand = self.bus.read(addr);
-        if !self.cpu.reg.decimal {
+        if !self.cpu.reg.decimal || self.cpu.decimal_mode_disabled {
             self.binary_adc(operand);
         } else {
             let mut carry_out = false;
@@ -369,7 +376,7 @@ impl<B: Bus> CpuWithBus<'_, B> {
 
     fn sbc(&mut self, addr: u16) {
         let operand = self.bus.read(addr);
-        if !self.cpu.reg.decimal {
+        if !self.cpu.reg.decimal || self.cpu.decimal_mode_disabled {
             self.binary_adc(!operand); // works due to two's complement
         } else {
             let mut carry_out = true;
