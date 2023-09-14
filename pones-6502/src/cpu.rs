@@ -486,6 +486,94 @@ impl<B: Bus> CpuWithBus<'_, B> {
     fn nop_implied(&mut self) {
     }
 
+    // Illegal opcodes
+    fn stp_implied(&mut self) {
+        //TODO impl
+    }
+    
+    fn slo(&mut self, addr: u16) {
+        self.asl(addr);
+        self.ora(addr);
+    }
+    
+    fn nop(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn anc(&mut self, _addr: u16) {
+        //TODO impl
+    }
+
+    fn rla(&mut self, addr: u16) {
+        self.rol(addr);
+        self.and(addr);
+    }
+    
+    fn sre(&mut self, addr: u16) {
+        self.lsr(addr);
+        self.eor(addr);
+    }
+    
+    fn alr(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn rra(&mut self, addr: u16) {
+        self.ror(addr);
+        self.adc(addr);
+    }
+    
+    fn arr(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn sax(&mut self, addr: u16) {
+        self.bus.write(addr, self.cpu.reg.a & self.cpu.reg.x);
+    }
+    
+    fn xaa(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn ahx(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn tas(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn shy(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn shx(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn lax(&mut self, addr: u16) {
+        self.lda(addr);
+        self.tax_implied();
+    }
+    
+    fn las(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn dcp(&mut self, addr: u16) {
+        self.dec(addr);
+        self.cmp(addr);
+    }
+    
+    fn axs(&mut self, _addr: u16) {
+        //TODO impl
+    }
+    
+    fn isc(&mut self, addr: u16) {
+        self.inc(addr);
+        self.sbc(addr);
+    }
+
     fn step(&mut self) {
         // #i    - immediate value
         // d     - zero page address
@@ -497,7 +585,6 @@ impl<B: Bus> CpuWithBus<'_, B> {
             ($($opcode:literal $handler:ident($($addr_mode:tt)*))*) => {
                 match self.take_u8_at_pc() {
                     $($opcode => dispatch!(@call $handler $($addr_mode)*),)*
-                    _ => {}
                 }
             };
 
@@ -570,260 +657,260 @@ impl<B: Bus> CpuWithBus<'_, B> {
         dispatch! {
             0x00 brk_implied()
             0x01 ora("(d,x)")
-            // 0x02 stp_implied() // illegal
-            // 0x03 slo("(d,x)") // illegal
-            // 0x04 nop("d") // illegal
+            0x02 stp_implied() // illegal
+            0x03 slo("(d,x)") // illegal
+            0x04 nop("d") // illegal
             0x05 ora("d")
             0x06 asl("d")
-            // 0x07 slo("d") // illegal
+            0x07 slo("d") // illegal
             0x08 php_implied()
             0x09 ora("#i")
             0x0A asl_implied()
-            // 0x0B anc("#i") // illegal
-            // 0x0C nop("a") // illegal
+            0x0B anc("#i") // illegal
+            0x0C nop("a") // illegal
             0x0D ora("a")
             0x0E asl("a")
-            // 0x0F slo("a") // illegal
+            0x0F slo("a") // illegal
             0x10 bpl("*+d")
             0x11 ora("(d),y")
-            // 0x12 stp_implied() // illegal
-            // 0x13 slo("(d),y") // illegal
-            // 0x14 nop("d,x") // illegal
+            0x12 stp_implied() // illegal
+            0x13 slo("(d),y") // illegal
+            0x14 nop("d,x") // illegal
             0x15 ora("d,x")
             0x16 asl("d,x")
-            // 0x17 slo("d,x") // illegal
+            0x17 slo("d,x") // illegal
             0x18 clc_implied()
             0x19 ora("a,y")
-            // 0x1A nop_implied() // illegal
-            // 0x1B slo("a,y") // illegal
-            // 0x1C nop("a,x") // illegal
+            0x1A nop_implied() // illegal
+            0x1B slo("a,y") // illegal
+            0x1C nop("a,x") // illegal
             0x1D ora("a,x")
             0x1E asl("a,x")
-            // 0x1F slo("a,x") // illegal
+            0x1F slo("a,x") // illegal
             0x20 jsr("a")
             0x21 and("(d,x)")
-            // 0x22 stp_implied() // illegal
-            // 0x23 rla("(d,x)") // illegal
+            0x22 stp_implied() // illegal
+            0x23 rla("(d,x)") // illegal
             0x24 bit("d")
             0x25 and("d")
             0x26 rol("d")
-            // 0x27 rla("d") // illegal
+            0x27 rla("d") // illegal
             0x28 plp_implied()
             0x29 and("#i")
             0x2A rol_implied()
-            // 0x2B anc("#i") // illegal
+            0x2B anc("#i") // illegal
             0x2C bit("a")
             0x2D and("a")
             0x2E rol("a")
-            // 0x2F rla("a") // illegal
+            0x2F rla("a") // illegal
             0x30 bmi("*+d")
             0x31 and("(d),y")
-            // 0x32 stp_implied() // illegal
-            // 0x33 rla("(d),y") // illegal
-            // 0x34 nop("d,x") // illegal
+            0x32 stp_implied() // illegal
+            0x33 rla("(d),y") // illegal
+            0x34 nop("d,x") // illegal
             0x35 and("d,x")
             0x36 rol("d,x")
-            // 0x37 rla("d,x") // illegal
+            0x37 rla("d,x") // illegal
             0x38 sec_implied()
             0x39 and("a,y")
-            // 0x3A nop_implied() // illegal
-            // 0x3B rla("a,y") // illegal
-            // 0x3C nop("a,x") // illegal
+            0x3A nop_implied() // illegal
+            0x3B rla("a,y") // illegal
+            0x3C nop("a,x") // illegal
             0x3D and("a,x")
             0x3E rol("a,x")
-            // 0x3F rla("a,x") // illegal
+            0x3F rla("a,x") // illegal
             0x40 rti_implied()
             0x41 eor("(d,x)")
-            // 0x42 stp_implied() // illegal
-            // 0x43 sre("(d,x)") // illegal
-            // 0x44 nop("d") // illegal
+            0x42 stp_implied() // illegal
+            0x43 sre("(d,x)") // illegal
+            0x44 nop("d") // illegal
             0x45 eor("d")
             0x46 lsr("d")
-            // 0x47 sre("d") // illegal
+            0x47 sre("d") // illegal
             0x48 pha_implied()
             0x49 eor("#i")
             0x4A lsr_implied()
-            // 0x4B alr("#i") // illegal
+            0x4B alr("#i") // illegal
             0x4C jmp("a")
             0x4D eor("a")
             0x4E lsr("a")
-            // 0x4F sre("a") // illegal
+            0x4F sre("a") // illegal
             0x50 bvc("*+d")
             0x51 eor("(d),y")
-            // 0x52 stp_implied() // illegal
-            // 0x53 sre("(d),y") // illegal
-            // 0x54 nop("d,x") // illegal
+            0x52 stp_implied() // illegal
+            0x53 sre("(d),y") // illegal
+            0x54 nop("d,x") // illegal
             0x55 eor("d,x")
             0x56 lsr("d,x")
-            // 0x57 sre("d,x") // illegal
+            0x57 sre("d,x") // illegal
             0x58 cli_implied()
             0x59 eor("a,y")
-            // 0x5A nop_implied() // illegal
-            // 0x5B sre("a,y") // illegal
-            // 0x5C nop("a,x") // illegal
+            0x5A nop_implied() // illegal
+            0x5B sre("a,y") // illegal
+            0x5C nop("a,x") // illegal
             0x5D eor("a,x")
             0x5E lsr("a,x")
-            // 0x5F sre("a,x") // illegal
+            0x5F sre("a,x") // illegal
             0x60 rts_implied()
             0x61 adc("(d,x)")
-            // 0x62 stp_implied() // illegal
-            // 0x63 rra("(d,x)") // illegal
-            // 0x64 nop("d") // illegal
+            0x62 stp_implied() // illegal
+            0x63 rra("(d,x)") // illegal
+            0x64 nop("d") // illegal
             0x65 adc("d")
             0x66 ror("d")
-            // 0x67 rra("d") // illegal
+            0x67 rra("d") // illegal
             0x68 pla_implied()
             0x69 adc("#i")
             0x6A ror_implied()
-            // 0x6B arr("#i") // illegal
+            0x6B arr("#i") // illegal
             0x6C jmp("(a)")
             0x6D adc("a")
             0x6E ror("a")
-            // 0x6F rra("a") // illegal
+            0x6F rra("a") // illegal
             0x70 bvs("*+d")
             0x71 adc("(d),y")
-            // 0x72 stp_implied() // illegal
-            // 0x73 rra("(d),y") // illegal
-            // 0x74 nop("d,x") // illegal
+            0x72 stp_implied() // illegal
+            0x73 rra("(d),y") // illegal
+            0x74 nop("d,x") // illegal
             0x75 adc("d,x")
             0x76 ror("d,x")
-            // 0x77 rra("d,x") // illegal
+            0x77 rra("d,x") // illegal
             0x78 sei_implied()
             0x79 adc("a,y")
-            // 0x7A nop_implied() // illegal
-            // 0x7B rra("a,y") // illegal
-            // 0x7C nop("a,x") // illegal
+            0x7A nop_implied() // illegal
+            0x7B rra("a,y") // illegal
+            0x7C nop("a,x") // illegal
             0x7D adc("a,x")
             0x7E ror("a,x")
-            // 0x7F rra("a,x") // illegal
-            // 0x80 nop("#i") // illegal
+            0x7F rra("a,x") // illegal
+            0x80 nop("#i") // illegal
             0x81 sta("(d,x)")
-            // 0x82 nop("#i") // illegal
-            // 0x83 sax("(d,x)") // illegal
+            0x82 nop("#i") // illegal
+            0x83 sax("(d,x)") // illegal
             0x84 sty("d")
             0x85 sta("d")
             0x86 stx("d")
-            // 0x87 sax("d") // illegal
+            0x87 sax("d") // illegal
             0x88 dey_implied()
-            // 0x89 nop("#i") // illegal
+            0x89 nop("#i") // illegal
             0x8A txa_implied()
-            // 0x8B xaa("#i") // illegal
+            0x8B xaa("#i") // illegal
             0x8C sty("a")
             0x8D sta("a")
             0x8E stx("a")
-            // 0x8F sax("a") // illegal
+            0x8F sax("a") // illegal
             0x90 bcc("*+d")
             0x91 sta("(d),y")
-            // 0x92 stp_implied() // illegal
-            // 0x93 ahx("(d),y") // illegal
+            0x92 stp_implied() // illegal
+            0x93 ahx("(d),y") // illegal
             0x94 sty("d,x")
             0x95 sta("d,x")
             0x96 stx("d,y")
-            // 0x97 sax("d,y") // illegal
+            0x97 sax("d,y") // illegal
             0x98 tya_implied()
             0x99 sta("a,y")
             0x9A txs_implied()
-            // 0x9B tas("a,y") // illegal
-            // 0x9C shy("a,x") // illegal
+            0x9B tas("a,y") // illegal
+            0x9C shy("a,x") // illegal
             0x9D sta("a,x")
-            // 0x9E shx("a,y") // illegal
-            // 0x9F ahx("a,y") // illegal
+            0x9E shx("a,y") // illegal
+            0x9F ahx("a,y") // illegal
             0xA0 ldy("#i")
             0xA1 lda("(d,x)")
             0xA2 ldx("#i")
-            // 0xA3 lax("(d,x)") // illegal
+            0xA3 lax("(d,x)") // illegal
             0xA4 ldy("d")
             0xA5 lda("d")
             0xA6 ldx("d")
-            // 0xA7 lax("d") // illegal
+            0xA7 lax("d") // illegal
             0xA8 tay_implied()
             0xA9 lda("#i")
             0xAA tax_implied()
-            // 0xAB lax("#i") // illegal
+            0xAB lax("#i") // illegal
             0xAC ldy("a")
             0xAD lda("a")
             0xAE ldx("a")
-            // 0xAF lax("a") // illegal
+            0xAF lax("a") // illegal
             0xB0 bcs("*+d")
             0xB1 lda("(d),y")
-            // 0xB2 stp_implied() // illegal
-            // 0xB3 lax("(d),y") // illegal
+            0xB2 stp_implied() // illegal
+            0xB3 lax("(d),y") // illegal
             0xB4 ldy("d,x")
             0xB5 lda("d,x")
             0xB6 ldx("d,y")
-            // 0xB7 lax("d,y") // illegal
+            0xB7 lax("d,y") // illegal
             0xB8 clv_implied()
             0xB9 lda("a,y")
             0xBA tsx_implied()
-            // 0xBB las("a,y") // illegal
+            0xBB las("a,y") // illegal
             0xBC ldy("a,x")
             0xBD lda("a,x")
             0xBE ldx("a,y")
-            // 0xBF lax("a,y") // illegal
+            0xBF lax("a,y") // illegal
             0xC0 cpy("#i")
             0xC1 cmp("(d,x)")
-            // 0xC2 nop("#i") // illegal
-            // 0xC3 dcp("(d,x)") // illegal
+            0xC2 nop("#i") // illegal
+            0xC3 dcp("(d,x)") // illegal
             0xC4 cpy("d")
             0xC5 cmp("d")
             0xC6 dec("d")
-            // 0xC7 dcp("d") // illegal
+            0xC7 dcp("d") // illegal
             0xC8 iny_implied()
             0xC9 cmp("#i")
             0xCA dex_implied()
-            // 0xCB axs("#i") // illegal
+            0xCB axs("#i") // illegal
             0xCC cpy("a")
             0xCD cmp("a")
             0xCE dec("a")
-            // 0xCF dcp("a") // illegal
+            0xCF dcp("a") // illegal
             0xD0 bne("*+d")
             0xD1 cmp("(d),y")
-            // 0xD2 stp_implied() // illegal
-            // 0xD3 dcp("(d),y") // illegal
-            // 0xD4 nop("d,x") // illegal
+            0xD2 stp_implied() // illegal
+            0xD3 dcp("(d),y") // illegal
+            0xD4 nop("d,x") // illegal
             0xD5 cmp("d,x")
             0xD6 dec("d,x")
-            // 0xD7 dcp("d,x") // illegal
+            0xD7 dcp("d,x") // illegal
             0xD8 cld_implied()
             0xD9 cmp("a,y")
-            // 0xDA nop_implied() // illegal
-            // 0xDB dcp("a,y") // illegal
-            // 0xDC nop("a,x") // illegal
+            0xDA nop_implied() // illegal
+            0xDB dcp("a,y") // illegal
+            0xDC nop("a,x") // illegal
             0xDD cmp("a,x")
             0xDE dec("a,x")
-            // 0xDF dcp("a,x") // illegal
+            0xDF dcp("a,x") // illegal
             0xE0 cpx("#i")
             0xE1 sbc("(d,x)")
-            // 0xE2 nop("#i") // illegal
-            // 0xE3 isc("(d,x)") // illegal
+            0xE2 nop("#i") // illegal
+            0xE3 isc("(d,x)") // illegal
             0xE4 cpx("d")
             0xE5 sbc("d")
             0xE6 inc("d")
-            // 0xE7 isc("d") // illegal
+            0xE7 isc("d") // illegal
             0xE8 inx_implied()
             0xE9 sbc("#i")
             0xEA nop_implied()
-            // 0xEB sbc("#i") // illegal
+            0xEB sbc("#i") // illegal
             0xEC cpx("a")
             0xED sbc("a")
             0xEE inc("a")
-            // 0xEF isc("a") // illegal
+            0xEF isc("a") // illegal
             0xF0 beq("*+d")
             0xF1 sbc("(d),y")
-            // 0xF2 stp_implied() // illegal
-            // 0xF3 isc("(d),y") // illegal
-            // 0xF4 nop("d,x") // illegal
+            0xF2 stp_implied() // illegal
+            0xF3 isc("(d),y") // illegal
+            0xF4 nop("d,x") // illegal
             0xF5 sbc("d,x")
             0xF6 inc("d,x")
-            // 0xF7 isc("d,x") // illegal
+            0xF7 isc("d,x") // illegal
             0xF8 sed_implied()
             0xF9 sbc("a,y")
-            // 0xFA nop_implied() // illegal
-            // 0xFB isc("a,y") // illegal
-            // 0xFC nop("a,x") // illegal
+            0xFA nop_implied() // illegal
+            0xFB isc("a,y") // illegal
+            0xFC nop("a,x") // illegal
             0xFD sbc("a,x")
             0xFE inc("a,x")
-            // 0xFF isc("a,x") // illegal
+            0xFF isc("a,x") // illegal
         }
     }
 }
