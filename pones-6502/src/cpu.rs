@@ -1,9 +1,10 @@
 use crate::reg_state::RegisterState;
 
-const STACK_START: u16 = 0x0100;
-const IRQ_BRK_VECTOR: u16 = 0xFFFE;
-const RESET_VECTOR: u16 = 0xFFFC;
-const NMI_VECTOR: u16 = 0xFFFA;
+const STACK_BASE: u8 = 0x01;
+const VECTOR_BASE: u8 = 0xFF;
+const IRQ_BRK_VECTOR: u8 = 0xFE;
+const RESET_VECTOR: u8 = 0xFC;
+const NMI_VECTOR: u8 = 0xFA;
 
 pub trait Bus {
     fn read(&mut self, addr: u16) -> u8;
@@ -52,8 +53,10 @@ struct CpuWithBus<'c, B> {
 }
 
 impl<B: Bus> CpuWithBus<'_, B> {
-    fn read_u16(&mut self, addr: u16) -> u16 {
-        u16::from_le_bytes([self.bus.read(addr), self.bus.read(addr.wrapping_add(1))])
+    fn read_u16(&mut self, high: u8, low: u8) -> u16 {
+        let u16_low = u16::from_le_bytes([low, high]);
+        let u16_high = u16::from_le_bytes([low.wrapping_add(1), high]);
+        u16::from_le_bytes([self.bus.read(u16_low), self.bus.read(u16_high)])
     }
 
     fn take_u8_at_pc(&mut self) -> u8 {
@@ -67,22 +70,24 @@ impl<B: Bus> CpuWithBus<'_, B> {
     }
 
     fn stack_push(&mut self, value: u8) {
-        self.bus.write(STACK_START + self.cpu.sp as u16, value);
+        let addr = u16::from_le_bytes([self.cpu.sp, STACK_BASE]);
+        self.bus.write(addr, value);
         self.cpu.sp = self.cpu.sp.wrapping_sub(1);
     }
 
     fn stack_pop(&mut self) -> u8 {
         self.cpu.sp = self.cpu.sp.wrapping_add(1);
-        self.bus.read(STACK_START + self.cpu.sp as u16)
+        let addr = u16::from_le_bytes([self.cpu.sp, STACK_BASE]);
+        self.bus.read(addr)
     }
 
-    fn interrupt(&mut self, vector: u16, brk: bool) {
+    fn interrupt(&mut self, vector: u8, brk: bool) {
         let [pc_low, pc_high] = self.cpu.pc.to_le_bytes();
         self.stack_push(pc_high);
         self.stack_push(pc_low);
         self.stack_push(self.cpu.reg.get_status(brk));
         self.cpu.reg.interrupt_disable = true;
-        self.cpu.pc = self.read_u16(vector);
+        self.cpu.pc = self.read_u16(VECTOR_BASE, vector);
     }
 
     fn binary_adc(&mut self, operand: u8) {
@@ -103,7 +108,7 @@ impl<B: Bus> CpuWithBus<'_, B> {
         // to the stack, but it's hijacked to do reads instead
         // of writes. It still modifies sp, hence the subtraction.
         self.cpu.sp = self.cpu.sp.wrapping_sub(3);
-        self.cpu.pc = self.read_u16(RESET_VECTOR);
+        self.cpu.pc = self.read_u16(VECTOR_BASE, RESET_VECTOR);
     }
 
     fn irq(&mut self) {
@@ -518,8 +523,9 @@ impl<B: Bus> CpuWithBus<'_, B> {
             }};
             
             (@call $handler:ident "(a)") => {{
-                let addr = self.take_u16_at_pc();
-                let addr = self.read_u16(addr);
+                let low = self.take_u8_at_pc();
+                let high = self.take_u8_at_pc();
+                let addr = self.read_u16(high, low);
                 self.$handler(addr);
             }};
             
@@ -549,14 +555,14 @@ impl<B: Bus> CpuWithBus<'_, B> {
             }};
             
             (@call $handler:ident "(d,x)") => {{
-                let addr = self.take_u8_at_pc().wrapping_add(self.cpu.reg.x) as u16;
-                let addr = self.read_u16(addr);
+                let addr = self.take_u8_at_pc().wrapping_add(self.cpu.reg.x);
+                let addr = self.read_u16(0, addr);
                 self.$handler(addr);
             }};
             
             (@call $handler:ident "(d),y") => {{
-                let addr = self.take_u8_at_pc() as u16;
-                let addr = self.read_u16(addr).wrapping_add(self.cpu.reg.y as u16);
+                let addr = self.take_u8_at_pc();
+                let addr = self.read_u16(0, addr).wrapping_add(self.cpu.reg.y as u16);
                 self.$handler(addr);
             }};
         }
